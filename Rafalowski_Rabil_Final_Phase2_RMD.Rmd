@@ -1,0 +1,1343 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Project Phase 2
+
+## Team Rafalowski-Rabil
+
+### Model Generation
+
+#### Load Libraries
+```{r load libraries, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(tidymodels)
+library(mice) #package for imputation
+library(VIM) #visualizing missingness
+library(ranger) #for random forests
+library(randomForest) #also for random forests
+library(naniar) #visualizing missingness
+library(caret)
+library(skimr)
+library(GGally)
+library(gridExtra)
+library(vip) #variable importance
+library(stringr)
+library(rsconnect)
+library(e1071)
+library(ROCR)
+library(naivebayes)
+library(randomForest)
+library(rpart)
+library(Amelia)
+library(psych)
+library(caretEnsemble)
+library(rpart) #for classification trees
+library(rpart.plot)
+library(RColorBrewer) 
+library(rattle)
+```
+
+### Setup______________________________________________________________________
+
+#### Load and Clean sharkstudent data set
+
+```{r clean and tidy data}
+#Read in Data set
+sharkstudent <- read_csv("shark_student.csv")
+
+#Create New Season Variable
+sharkstudent<- mutate(sharkstudent,"Season" = str_sub(sharkstudent$SeasonEpisode,12,14))
+
+# Renames columns without spaces and slash
+colnames(sharkstudent)[colnames(sharkstudent) == "Health / Wellness"] <- "HealthWellness"
+colnames(sharkstudent)[colnames(sharkstudent) == "Lifestyle / Home"] <- "LifestyleHome" 
+colnames(sharkstudent)[colnames(sharkstudent) == "Software / Tech"] <- "SoftwareTech" 
+colnames(sharkstudent)[colnames(sharkstudent) == "Children / Education"] <- "ChildrenEducation" 
+colnames(sharkstudent)[colnames(sharkstudent) == "Fashion / Beauty"] <- "FashionBeauty"
+colnames(sharkstudent)[colnames(sharkstudent) == "Media / Entertainment"] <- "MediaEntertainment"
+colnames(sharkstudent)[colnames(sharkstudent) == "Fitness / Sports / Outdoors"] <- "FitnessSportsOutdoors"
+colnames(sharkstudent)[colnames(sharkstudent) == "Green/CleanTech"] <- "GreenCleanTech"
+colnames(sharkstudent)[colnames(sharkstudent) == "Uncertain / Other"] <- "UncertainOther"
+colnames(sharkstudent)[colnames(sharkstudent) == "Food and Beverage"] <- "FoodBeverage"
+colnames(sharkstudent)[colnames(sharkstudent) == "Business Services"] <- "BusinessServices"
+colnames(sharkstudent)[colnames(sharkstudent) == "Pet Products"] <- "PetProducts"
+
+#Convert all character variables to Factor
+sharkstudent = sharkstudent %>% mutate_if(is.character,as_factor)
+
+#Concert to factor and recode categories
+sharkstudent <- sharkstudent %>% 
+  mutate(ReceiveOffer = as_factor(ReceiveOffer)) %>%
+  mutate(ReceiveOffer = fct_recode(ReceiveOffer, "Yes" = "1", "No" = "0")) %>%
+  mutate(RejectOffer = as_factor(RejectOffer)) %>%
+  mutate(RejectOffer = fct_recode(RejectOffer, "Yes" = "1", "No" = "0")) %>%
+  mutate(Deal_Yes = as_factor(Deal_Yes)) %>%
+  mutate(Deal_Yes = fct_recode(Deal_Yes, "Yes" = "1", "No" = "0")) %>%
+  mutate(Deal_No = as_factor(Deal_No)) %>%
+  mutate(Deal_No = fct_recode(Deal_No, "Yes" = "1", "No" = "0")) %>%
+  mutate(Eth1 = as_factor(Eth1)) %>%
+  mutate(Eth1 = fct_recode(Eth1, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 1" = "0")) %>%
+  mutate(Eth2 = as_factor(Eth2)) %>%
+  mutate(Eth2 = fct_recode(Eth2, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 2" = "0")) %>%
+  mutate(Eth3 = as_factor(Eth3)) %>%
+  mutate(Eth3 = fct_recode(Eth3, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 3" = "0")) %>%
+  mutate(Eth4 = as_factor(Eth4)) %>%
+  mutate(Eth4 = fct_recode(Eth4, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 4" = "0")) %>%
+  mutate(Eth5 = as_factor(Eth5)) %>%
+  mutate(Eth5 = fct_recode(Eth5, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 5" = "0")) %>%
+  mutate(Male1 = as_factor(Male1)) %>%
+  mutate(Male1 = fct_recode(Male1, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male2 = as_factor(Male2)) %>%  
+  mutate(Male2 = fct_recode(Male2, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male3 = as_factor(Male3)) %>%
+  mutate(Male3 = fct_recode(Male3, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male4 = as_factor(Male4)) %>%
+  mutate(Male4 = fct_recode(Male4, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female1 = as_factor(Female1)) %>%
+  mutate(Female1 = fct_recode(Female1, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female2 = as_factor(Female2)) %>%
+  mutate(Female2 = fct_recode(Female2, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female3 = as_factor(Female3)) %>%
+  mutate(Female3 = fct_recode(Female3, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female4 = as_factor(Female4)) %>%
+  mutate(Female4 = fct_recode(Female4, "Yes" = "1", "No" = "0")) %>%
+  mutate(Novelties = as_factor(Novelties)) %>% 
+  mutate(Novelties = fct_recode(Novelties, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`HealthWellness` = as_factor(`HealthWellness`)) %>% 
+  mutate(`HealthWellness` = fct_recode(`HealthWellness`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FoodBeverage` = as_factor(`FoodBeverage`)) %>% 
+  mutate(`FoodBeverage` = fct_recode(`FoodBeverage`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`BusinessServices` = as_factor(`BusinessServices`)) %>% 
+  mutate(`BusinessServices` = fct_recode(`BusinessServices`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`LifestyleHome` = as_factor(`LifestyleHome`)) %>% 
+  mutate(`LifestyleHome` = fct_recode(`LifestyleHome`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`SoftwareTech` = as_factor(`SoftwareTech`)) %>% 
+  mutate(`SoftwareTech` = fct_recode(`SoftwareTech`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`ChildrenEducation` = as_factor(`ChildrenEducation`)) %>% 
+  mutate(`ChildrenEducation` = fct_recode(`ChildrenEducation`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Automotive = as_factor(Automotive)) %>% 
+  mutate(Automotive = fct_recode(Automotive, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FashionBeauty` = as_factor(`FashionBeauty`)) %>% 
+  mutate(`FashionBeauty` = fct_recode(`FashionBeauty`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`MediaEntertainment` = as_factor(`MediaEntertainment`)) %>% 
+  mutate(`MediaEntertainment` = fct_recode(`MediaEntertainment`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FitnessSportsOutdoors` = as_factor(`FitnessSportsOutdoors`)) %>% 
+  mutate(`FitnessSportsOutdoors` = fct_recode(`FitnessSportsOutdoors`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`PetProducts` = as_factor(`PetProducts`)) %>% 
+  mutate(`PetProducts` = fct_recode(`PetProducts`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Travel = as_factor(Travel)) %>% 
+  mutate(Travel = fct_recode(Travel, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`GreenCleanTech` = as_factor(`GreenCleanTech`)) %>% 
+  mutate(`GreenCleanTech` = fct_recode(`GreenCleanTech`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`UncertainOther` = as_factor(`UncertainOther`)) %>% 
+  mutate(`UncertainOther` = fct_recode(`UncertainOther`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MalePresenter = as_factor(MalePresenter)) %>% 
+  mutate(MalePresenter = fct_recode(MalePresenter, "Yes" = "1", "No" = "0" )) %>%
+  mutate(FemalePresenter = as_factor(FemalePresenter)) %>% 
+  mutate(FemalePresenter = fct_recode(FemalePresenter, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MixedGenderPresenters = as_factor(MixedGenderPresenters)) %>% 
+  mutate(MixedGenderPresenters = fct_recode(MixedGenderPresenters, "Yes" = "1", "No" = "0" )) %>%
+  mutate(CompanyState = as_factor(CompanyState)) %>% 
+  mutate(CompanyState = fct_recode(CompanyState, "Yes" = "1", "No" = "0" )) %>%
+  mutate(BarbaraCorcoran = as_factor(BarbaraCorcoran)) %>% 
+  mutate(BarbaraCorcoran = fct_recode(BarbaraCorcoran, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MarkCuban = as_factor(MarkCuban)) %>% 
+  mutate(MarkCuban = fct_recode(MarkCuban, "Yes" = "1", "No" = "0" )) %>%
+  mutate(LoriGreiner = as_factor(LoriGreiner)) %>% 
+  mutate(LoriGreiner = fct_recode(LoriGreiner, "Yes" = "1", "No" = "0" )) %>%
+  mutate(RobertHerjavec = as_factor(RobertHerjavec)) %>% 
+  mutate(RobertHerjavec = fct_recode(RobertHerjavec, "Yes" = "1", "No" = "0" )) %>%
+  mutate(DaymondJohn = as_factor(DaymondJohn)) %>% 
+  mutate(DaymondJohn = fct_recode(DaymondJohn, "Yes" = "1", "No" = "0" )) %>%
+  mutate(KevinOLeary = as_factor(KevinOLeary)) %>% 
+  mutate(KevinOLeary = fct_recode(KevinOLeary, "Yes" = "1", "No" = "0" )) %>%
+  mutate(KevinHarrington = as_factor(KevinHarrington)) %>% 
+  mutate(KevinHarrington = fct_recode(KevinHarrington, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Guest = as_factor(Guest)) %>% 
+  mutate(Guest = fct_recode(Guest, "Yes" = "1", "No" = "0" ))
+
+# Remove weak or non-required variables
+sharkstudent = sharkstudent %>% select(-CompanyState) 
+sharkstudent = sharkstudent %>% select(-Deal_No) 
+sharkstudent = sharkstudent %>% select(-ReceiveOffer)
+sharkstudent = sharkstudent %>% select(-RejectOffer)
+sharkstudent = sharkstudent %>% select(-Male4)
+# sharkstudent = sharkstudent %>% select(-Female4)
+# sharkstudent = sharkstudent %>% select(-Eth4)
+# sharkstudent = sharkstudent %>% select(-Eth5)
+sharkstudent = sharkstudent %>% select(-SeasonEpisode)
+sharkstudent = sharkstudent %>% select(-Company)
+sharkstudent = sharkstudent %>% select(-X1)  
+```
+
+#### Load and Clean sharkcompetition data set
+
+```{r clean and tidy data2}
+#Read in Data set
+sharkcompetition <- read_csv("shark_competition.csv")
+
+#Create New Season Variable
+sharkcompetition<- mutate(sharkcompetition,"Season" = str_sub(sharkcompetition$SeasonEpisode,12,14))
+
+# Renames columns without spaces and slash
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Health / Wellness"] <- "HealthWellness"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Lifestyle / Home"] <- "LifestyleHome" 
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Software / Tech"] <- "SoftwareTech" 
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Children / Education"] <- "ChildrenEducation" 
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Fashion / Beauty"] <- "FashionBeauty"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Media / Entertainment"] <- "MediaEntertainment"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Fitness / Sports / Outdoors"] <- "FitnessSportsOutdoors"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Green/CleanTech"] <- "GreenCleanTech"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Uncertain / Other"] <- "UncertainOther"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Food and Beverage"] <- "FoodBeverage"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Business Services"] <- "BusinessServices"
+colnames(sharkcompetition)[colnames(sharkcompetition) == "Pet Products"] <- "PetProducts"
+
+#Convert all character variables to Factor
+sharkcompetition = sharkcompetition %>% mutate_if(is.character,as_factor)
+
+#Concert to factor and recode categories
+sharkcompetition <- sharkcompetition %>% 
+  mutate(Eth1 = as_factor(Eth1)) %>%
+  mutate(Eth1 = fct_recode(Eth1, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 1" = "0")) %>%
+  mutate(Eth2 = as_factor(Eth2)) %>%
+  mutate(Eth2 = fct_recode(Eth2, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 2" = "0")) %>%
+  mutate(Eth3 = as_factor(Eth3)) %>%
+  mutate(Eth3 = fct_recode(Eth3, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 3" = "0")) %>%
+  mutate(Eth4 = as_factor(Eth4)) %>%
+  mutate(Eth4 = fct_recode(Eth4, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 4" = "0")) %>%
+  mutate(Eth5 = as_factor(Eth5)) %>%
+  mutate(Eth5 = fct_recode(Eth5, "African American" = "1", "White" = "2", "Asian" = "3", "Latino" = "4", "No presenter 5" = "0")) %>%
+  mutate(Male1 = as_factor(Male1)) %>%
+  mutate(Male1 = fct_recode(Male1, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male2 = as_factor(Male2)) %>%  
+  mutate(Male2 = fct_recode(Male2, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male3 = as_factor(Male3)) %>%
+  mutate(Male3 = fct_recode(Male3, "Yes" = "1", "No" = "0")) %>%
+  mutate(Male4 = as_factor(Male4)) %>%
+  mutate(Male4 = fct_recode(Male4, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female1 = as_factor(Female1)) %>%
+  mutate(Female1 = fct_recode(Female1, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female2 = as_factor(Female2)) %>%
+  mutate(Female2 = fct_recode(Female2, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female3 = as_factor(Female3)) %>%
+  mutate(Female3 = fct_recode(Female3, "Yes" = "1", "No" = "0")) %>%
+  mutate(Female4 = as_factor(Female4)) %>%
+  mutate(Female4 = fct_recode(Female4, "Yes" = "1", "No" = "0")) %>%
+  mutate(Novelties = as_factor(Novelties)) %>% 
+  mutate(Novelties = fct_recode(Novelties, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`HealthWellness` = as_factor(`HealthWellness`)) %>% 
+  mutate(`HealthWellness` = fct_recode(`HealthWellness`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FoodBeverage` = as_factor(`FoodBeverage`)) %>% 
+  mutate(`FoodBeverage` = fct_recode(`FoodBeverage`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`BusinessServices` = as_factor(`BusinessServices`)) %>% 
+  mutate(`BusinessServices` = fct_recode(`BusinessServices`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`LifestyleHome` = as_factor(`LifestyleHome`)) %>% 
+  mutate(`LifestyleHome` = fct_recode(`LifestyleHome`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`SoftwareTech` = as_factor(`SoftwareTech`)) %>% 
+  mutate(`SoftwareTech` = fct_recode(`SoftwareTech`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`ChildrenEducation` = as_factor(`ChildrenEducation`)) %>% 
+  mutate(`ChildrenEducation` = fct_recode(`ChildrenEducation`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Automotive = as_factor(Automotive)) %>% 
+  mutate(Automotive = fct_recode(Automotive, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FashionBeauty` = as_factor(`FashionBeauty`)) %>% 
+  mutate(`FashionBeauty` = fct_recode(`FashionBeauty`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`MediaEntertainment` = as_factor(`MediaEntertainment`)) %>% 
+  mutate(`MediaEntertainment` = fct_recode(`MediaEntertainment`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`FitnessSportsOutdoors` = as_factor(`FitnessSportsOutdoors`)) %>% 
+  mutate(`FitnessSportsOutdoors` = fct_recode(`FitnessSportsOutdoors`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`PetProducts` = as_factor(`PetProducts`)) %>% 
+  mutate(`PetProducts` = fct_recode(`PetProducts`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Travel = as_factor(Travel)) %>% 
+  mutate(Travel = fct_recode(Travel, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`GreenCleanTech` = as_factor(`GreenCleanTech`)) %>% 
+  mutate(`GreenCleanTech` = fct_recode(`GreenCleanTech`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(`UncertainOther` = as_factor(`UncertainOther`)) %>% 
+  mutate(`UncertainOther` = fct_recode(`UncertainOther`, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MalePresenter = as_factor(MalePresenter)) %>% 
+  mutate(MalePresenter = fct_recode(MalePresenter, "Yes" = "1", "No" = "0" )) %>%
+  mutate(FemalePresenter = as_factor(FemalePresenter)) %>% 
+  mutate(FemalePresenter = fct_recode(FemalePresenter, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MixedGenderPresenters = as_factor(MixedGenderPresenters)) %>% 
+  mutate(MixedGenderPresenters = fct_recode(MixedGenderPresenters, "Yes" = "1", "No" = "0" )) %>%
+  mutate(CompanyState = as_factor(CompanyState)) %>% 
+  mutate(CompanyState = fct_recode(CompanyState, "Yes" = "1", "No" = "0" )) %>%
+  mutate(BarbaraCorcoran = as_factor(BarbaraCorcoran)) %>% 
+  mutate(BarbaraCorcoran = fct_recode(BarbaraCorcoran, "Yes" = "1", "No" = "0" )) %>%
+  mutate(MarkCuban = as_factor(MarkCuban)) %>% 
+  mutate(MarkCuban = fct_recode(MarkCuban, "Yes" = "1", "No" = "0" )) %>%
+  mutate(LoriGreiner = as_factor(LoriGreiner)) %>% 
+  mutate(LoriGreiner = fct_recode(LoriGreiner, "Yes" = "1", "No" = "0" )) %>%
+  mutate(RobertHerjavec = as_factor(RobertHerjavec)) %>% 
+  mutate(RobertHerjavec = fct_recode(RobertHerjavec, "Yes" = "1", "No" = "0" )) %>%
+  mutate(DaymondJohn = as_factor(DaymondJohn)) %>% 
+  mutate(DaymondJohn = fct_recode(DaymondJohn, "Yes" = "1", "No" = "0" )) %>%
+  mutate(KevinOLeary = as_factor(KevinOLeary)) %>% 
+  mutate(KevinOLeary = fct_recode(KevinOLeary, "Yes" = "1", "No" = "0" )) %>%
+  mutate(KevinHarrington = as_factor(KevinHarrington)) %>% 
+  mutate(KevinHarrington = fct_recode(KevinHarrington, "Yes" = "1", "No" = "0" )) %>%
+  mutate(Guest = as_factor(Guest)) %>% 
+  mutate(Guest = fct_recode(Guest, "Yes" = "1", "No" = "0" ))
+
+# Remove weak or non-required variables
+sharkcompetition = sharkcompetition %>% select(-CompanyState) 
+sharkcompetition = sharkcompetition %>% select(-Male4)
+# sharkcompetition = sharkcompetition %>% select(-Female4)
+# sharkcompetition = sharkcompetition %>% select(-Eth4)
+# sharkcompetition = sharkcompetition %>% select(-Eth5)
+sharkcompetition = sharkcompetition %>% select(-SeasonEpisode)
+sharkcompetition = sharkcompetition %>% select(-Company)
+sharkcompetition = sharkcompetition %>% select(-X1)  
+```
+
+
+
+
+## Random Forests______________________________________________________________________
+
+```{r create folds}
+set.seed(123)
+rf_folds = vfold_cv(sharkstudent, v = 5)
+```
+
+```{r RF first pass}
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~., sharkstudent) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+set.seed(123)
+rf_res = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = 20 #try 20 different combinations of the random forest tuning parameters
+)
+```
+
+```{r RFAccPlot}
+#Plot for Tuning
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+#### Random Forest Tuning______________________________________________________________________
+
+```{r RFTUNE2}
+#RANDOM FOREST
+set.seed(123)
+rf_folds = vfold_cv(sharkstudent, v = 5)
+
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~., sharkstudent) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+
+rf_grid = grid_regular(
+  mtry(range = c(2, 30)), #these values determined through significant trial and error
+  min_n(range = c(15, 25)), #these values determined through significant trial and error
+  levels = 5
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = rf_grid #use the tuning grid
+)
+```
+
+#### Random Forest Var of Importance______________________________________________________________________
+
+```{r RFVar IMport2}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  shark_wflow,
+  best_rf
+)
+
+final_rf
+
+set.seed(123)
+final_rf_fit = fit(final_rf, sharkstudent)
+
+set.seed(123)
+final_rf_fit %>% pull_workflow_fit() %>% vip(geom = "point", mapping=aes_string(fill="Variable")) + labs(title="Random Forest Variables of Importance", y="Importance", x="Variable") + theme(plot.title = element_text(hjust = 0.5,face="bold"))
+```
+
+
+### Split the Data
+```{r}
+set.seed(123) 
+shark_split = initial_split(sharkstudent, prob = 0.70, strata = Deal_Yes)
+train = training(shark_split)
+test = testing(shark_split)
+```
+
+
+### Predictions and Confusion Matrix for Sharkstudent
+```{r}
+predictionrf = predict(final_rf_fit, sharkstudent)
+head(predictionrf)
+
+confusionMatrix(predictionrf$.pred_class, sharkstudent$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions and Confusion Matrix for Train
+```{r}
+predictionrf2 = predict(final_rf_fit, train)
+head(predictionrf2)
+
+confusionMatrix(predictionrf2$.pred_class, train$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions and Confusion Matrix for Test
+```{r}
+predictionrf3 = predict(final_rf_fit, test)
+head(predictionrf3)
+
+confusionMatrix(predictionrf3$.pred_class, test$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions for sharkcompetition dataset
+```{r, Test set prediction and performance3}
+pred_competition = predict(final_rf_fit, sharkcompetition, type = "class")
+head(pred_competition)
+```
+
+#### Combine predicitons with shark competion ID
+```{r}
+competition <- read_csv("shark_competition.csv")
+kaggle = competition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_1 = bind_cols(kaggle, pred_competition) #here, you would put your predictions object
+
+colnames(kaggle_1)[colnames(kaggle_1) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_1
+
+```
+
+
+Now we can write this dataframe out to a CSV file. This is file that you submit to Kaggle.  
+```{r}
+write.csv(kaggle_1, "kaggle_submit.csv", row.names=FALSE)
+```
+
+
+
+
+#### Random Forest Model Tuned 1________________________________________________
+
+### Split the Data
+```{r}
+set.seed(123) 
+shark_split = initial_split(sharkstudent, prob = 0.70, strata = Deal_Yes)
+train = training(shark_split)
+test = testing(shark_split)
+```
+
+```{r}
+set.seed(123)
+rf_folds = vfold_cv(train, v = 5)
+```
+
+### RF with 10 important variables from Phase 1
+```{r}
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ Season + BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+set.seed(123)
+rf_res = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = 20 #try 20 different combinations of the random forest tuning parameters
+)
+```
+
+
+### Visual for Tuning
+```{r}
+#Plot for Tuning
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+### Tuning
+```{r}
+#RANDOM FOREST
+set.seed(123)
+rf_folds = vfold_cv(train, v = 5)
+
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ Season + BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+
+rf_grid = grid_regular(
+  mtry(range = c(5, 13)), #these values determined through significant trial and error
+  min_n(range = c(24, 34)), #these values determined through significant trial and error
+  levels = 5
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = rf_grid #use the tuning grid
+)
+```
+
+
+```{r}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  shark_wflow,
+  best_rf
+)
+
+final_rf
+
+set.seed(123)
+final_rf_fit = fit(final_rf, train)
+```
+
+####Predictions and Confusion Matrix for Train Set
+```{r}
+trainpredrf = predict(final_rf_fit, train)
+head(trainpredrf)
+
+confusionMatrix(trainpredrf$.pred_class, train$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions and Confusion Matrix for Test
+```{r}
+testpredrf = predict(final_rf_fit, test)
+head(testpredrf)
+confusionMatrix(testpredrf$.pred_class, test$Deal_Yes, 
+                positive = "Yes")
+```
+
+### Predictions for sharkcompetition data
+```{r}
+#Generates Predictions for competition set
+predictionsrf = predict(final_rf_fit, sharkcompetition, type = "class")
+head(predictionsrf)
+```
+
+### Combine predicitons with shark competion ID
+```{r}
+competition <- read_csv("shark_competition.csv")
+kaggle = competition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_3 = bind_cols(kaggle, predictionsrf) #here, you would put your predictions object
+
+colnames(kaggle_3)[colnames(kaggle_3) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_3
+```
+
+```{r}
+write.csv(kaggle_3, "kaggle_submit2.csv", row.names=FALSE)
+```
+
+
+
+
+
+#### Random Forest Model Tuned 2________________________________________________
+
+
+### RF with important variables + 3 more variables from Var of Importance Visual
+```{r}
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ Season + BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome + FashionBeauty + Travel + `Number of Presenters` + FemalePresenter, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+set.seed(123)
+rf_res = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = 20 #try 20 different combinations of the random forest tuning parameters
+)
+```
+
+### Visual for Tuning
+```{r}
+#Plot for Tuning
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+### Tuning
+```{r}
+#RANDOM FOREST
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ Season + BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome + FashionBeauty + Travel + `Number of Presenters` + FemalePresenter, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+
+rf_grid = grid_regular(
+  mtry(range = c(0, 10)), #these values determined through significant trial and error
+  min_n(range = c(15, 35)), #these values determined through significant trial and error
+  levels = 5
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = rf_grid #use the tuning grid
+)
+```
+
+```{r}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  shark_wflow,
+  best_rf
+)
+
+final_rf
+
+set.seed(123)
+final_rf_fit = fit(final_rf, train)
+
+set.seed(123)
+final_rf_fit %>% pull_workflow_fit() %>% vip(geom = "point", mapping=aes_string(fill="Variable")) + labs(title="Random Forest Variables of Importance", y="Importance", x="Variable") + theme(plot.title = element_text(hjust = 0.5,face="bold"))
+```
+
+### Predictions and Confusion Matrix for Train set
+```{r}
+trainpredrf2 = predict(final_rf_fit, train)
+head(trainpredrf2)
+
+confusionMatrix(trainpredrf2$.pred_class, train$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions and Confusion Matrix for Test 
+```{r}
+testpredrf2 = predict(final_rf_fit, test)
+head(testpredrf2)
+confusionMatrix(testpredrf2$.pred_class, test$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+### Predictions for sharkcompetition data
+```{r, Test set prediction and performance4}
+predictionsrf2 = predict(final_rf_fit, sharkcompetition, type = "class")
+head(predictionsrf2)
+```
+
+#### Combine predicitons with shark competion ID
+```{r}
+competition <- read_csv("shark_competition.csv")
+kaggle = competition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_5 = bind_cols(kaggle, predictionsrf2) #here, you would put your predictions object
+
+colnames(kaggle_5)[colnames(kaggle_5) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_5
+
+```
+
+Now we can write this dataframe out to a CSV file. This is file that you submit to Kaggle.  
+```{r}
+write.csv(kaggle_5, "kaggle_submit3.csv", row.names=FALSE)
+```
+
+
+
+
+
+#### Random Forest Model Tuned 3________________________________________________
+
+
+### RF with Quantitative Variables + Important Categorical Variables
+```{r}
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ AmountRequested + EquityRequested + ImpliedValuationRequested + MalePresenter + FemalePresenter + BusinessServices, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+set.seed(123)
+rf_res = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = 40 #try 20 different combinations of the random forest tuning parameters
+)
+```
+
+### Visual for Tuning
+```{r}
+#Plot for Tuning
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+### Tuning
+```{r}
+#RANDOM FOREST
+set.seed(123)
+shark_recipe = recipe(Deal_Yes ~ AmountRequested + EquityRequested + ImpliedValuationRequested + MalePresenter + FemalePresenter + BusinessServices, train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+  # step_other()
+  # step_novel()
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+shark_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(shark_recipe)
+
+
+rf_grid = grid_regular(
+  mtry(range = c(0, 5)), #these values determined through significant trial and error
+  min_n(range = c(20, 40)), #these values determined through significant trial and error
+  levels = 5
+)
+
+set.seed(123)
+rf_res_tuned = tune_grid(
+  shark_wflow,
+  resamples = rf_folds,
+  grid = rf_grid #use the tuning grid
+)
+```
+
+```{r}
+best_rf = select_best(rf_res_tuned, "accuracy")
+
+final_rf = finalize_workflow(
+  shark_wflow,
+  best_rf
+)
+
+final_rf
+
+set.seed(123)
+final_rf_fit = fit(final_rf, train)
+
+set.seed(123)
+final_rf_fit %>% pull_workflow_fit() %>% vip(geom = "point", mapping=aes_string(fill="Variable")) + labs(title="Random Forest Variables of Importance", y="Importance", x="Variable") + theme(plot.title = element_text(hjust = 0.5,face="bold"))
+```
+
+###Predictions and Confusion Matrix for Train
+```{r}
+trainpredrf3 = predict(final_rf_fit, train)
+head(trainpredrf3)
+
+confusionMatrix(trainpredrf3$.pred_class, train$Deal_Yes, 
+                positive = "Yes")
+```
+
+
+#Predictions and Confusion Matrix for Test
+```{r}
+testpredrf3 = predict(final_rf_fit, test)
+head(testpredrf3)
+confusionMatrix(testpredrf3$.pred_class, test$Deal_Yes, 
+                positive = "Yes")
+```
+
+### Predictions for sharkcompetition data
+```{r, Test set prediction and performance5}
+predictionsrf3 = predict(final_rf_fit, sharkcompetition, type = "class")
+head(predictionsrf3)
+```
+
+
+#### Combine predicitons with shark competion ID
+```{r}
+competition <- read_csv("shark_competition.csv")
+kaggle = competition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_6 = bind_cols(kaggle, predictionsrf3) #here, you would put your predictions object
+
+colnames(kaggle_6)[colnames(kaggle_6) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_6
+
+```
+
+
+Now we can write this dataframe out to a CSV file. This is file that you submit to Kaggle.  
+```{r}
+write.csv(kaggle_6, "kaggle_submit4.csv", row.names=FALSE)
+```
+
+
+
+## Classification Tree________________________________________________________
+
+```{r}
+library(rpart) #for classification trees
+library(rpart.plot)
+
+sharkcf_recipe = recipe(Deal_Yes ~ Season +BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome, train) %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_model = decision_tree() %>%
+  set_engine("rpart", model = TRUE) %>%
+  set_mode("classification")
+
+sharkcf_wflow =workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(sharkcf_recipe)
+
+sharkcf_fit = fit(sharkcf_wflow, train)
+
+tree = sharkcf_fit %>% pull_workflow_fit() %>% pluck("fit")
+
+#plot the tree
+fancyRpartPlot(tree)
+
+```
+
+```{r}
+sharkcf_fit$fit$fit$fit$cptable
+```
+
+```{r}
+set.seed(123)
+folds = vfold_cv(train, v = 5)
+```
+
+```{r}
+sharkcf_recipe = recipe(Deal_Yes ~ Season +BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome, train) %>%
+  step_dummy(all_nominal(),-all_outcomes())
+
+tree_model = decision_tree(cost_complexity = tune()) %>% 
+  set_engine("rpart", model = TRUE) %>% #don't forget the model = TRUE flag
+  set_mode("classification")
+
+tree_grid = grid_regular(cost_complexity(),
+                          levels = 6) 
+
+sharkcf_wflow =workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(sharkcf_recipe)
+
+tree_res = 
+  sharkcf_wflow %>% 
+  tune_grid(
+    resamples = folds,
+    grid = tree_grid
+    )
+
+
+```
+
+Borrowed code from: https://www.tidymodels.org/start/tuning/
+```{r}
+tree_res %>%
+  collect_metrics() %>%
+  ggplot(aes(cost_complexity, mean)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) 
+```
+```{r}
+best_tree = tree_res %>%
+  select_best("accuracy")
+
+best_tree
+```
+```{r}
+final_wf = 
+  sharkcf_wflow %>% 
+  finalize_workflow(best_tree)
+```
+
+```{r}
+final_fit = fit(final_wf, train)
+
+tree = final_fit %>% 
+  pull_workflow_fit() %>% 
+  pluck("fit")
+
+```
+
+
+Predictions on training set  
+```{r}
+treepred = predict(final_fit, train, type = "class")
+head(treepred)
+```
+
+Caret confusion matrix and accuracy, etc. calcs  
+```{r}
+confusionMatrix(treepred$.pred_class,train$Deal_Yes,positive="Yes") #predictions first then actual
+```
+
+Predictions on testing set  
+```{r}
+treepred_test = predict(final_fit, test, type = "class")
+head(treepred_test)
+```
+
+Caret confusion matrix and accuracy, etc. calcs  
+```{r}
+confusionMatrix(treepred_test$.pred_class,test$Deal_Yes,positive="Yes") #predictions first then actual
+```
+
+
+## Naive Bayes______________________________________________________________________
+
+```{r}
+#Data set is split 70% into a training set and 30% into a test set
+set.seed(123)
+shark_split = initial_split(sharkstudent, prop = 0.70, strata = Deal_Yes)
+train = training(shark_split)
+test = testing(shark_split)
+
+folds = vfold_cv(train,v=5)
+```
+
+#### Removes quantitative variables, variables with multiple non-binary categoreis, and Female 4 variable (train df did not have a "yes")
+
+```{r}
+trainnb=train %>% 
+  select(-`Number of Presenters`) %>% 
+  select(-Eth1) %>% 
+  select(-Eth2) %>% 
+  select(-Eth3) %>% 
+  select(-Eth4) %>% 
+  select(-Eth5) %>% 
+  select(-AmountRequested) %>% 
+  select(-EquityRequested) %>% 
+  select(-ImpliedValuationRequested) %>% 
+  select(-Season) 
+  
+  testnb=test %>% 
+  select(-`Number of Presenters`) %>% 
+  select(-Eth1) %>% 
+  select(-Eth2) %>% 
+  select(-Eth3) %>% 
+  select(-Eth4) %>% 
+  select(-Eth5) %>% 
+  select(-AmountRequested) %>% 
+  select(-EquityRequested) %>% 
+  select(-ImpliedValuationRequested) %>% 
+  select(-Season) 
+```
+
+#### Set up Naive Bayes Data
+
+```{r Niave Bayes Data Setup}
+#create objects x which holds the predictor variables and y which holds the response variables
+x = trainnb[,-1]
+y = trainnb$Deal_Yes
+```
+
+#### Runs Naive Bayes Model on train
+
+```{r Maibe Bayes Model}
+model = train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+```
+
+#### Generate Confusion Matrix on train and test data
+
+```{r Run Predictions}
+Predicttrain <- predict(model,newdata = trainnb) #Get the confusion matrix to see accuracy value and other parameter values ]
+confusionMatrix(Predicttrain, trainnb$Deal_Yes)
+
+Predicttest <- predict(model,newdata = testnb) #Get the confusion matrix to see accuracy value and other parameter values ]
+confusionMatrix(Predicttest, testnb$Deal_Yes)
+```
+
+### Submission Prep______________________________________________________________________
+
+#### Prepare Shark Competitition df for Prediction For Submission
+
+```{r Test set prediction and performance2}
+#Generates Predictions for competition set
+
+sharkcompnb=sharkcompetition %>% 
+  select(-`Number of Presenters`) %>% 
+  select(-Eth1) %>% 
+  select(-Eth2) %>% 
+  select(-Eth3) %>% 
+  select(-Eth4) %>% 
+  select(-Eth5) %>% 
+  select(-AmountRequested) %>% 
+  select(-EquityRequested) %>% 
+  select(-ImpliedValuationRequested) %>% 
+  select(-Season) 
+```
+
+#### Generate predictions for sharkcompetition 
+
+```{r Test set prediction}
+pred_competition = predict(model, sharkcompnb, type = "prob")
+head(pred_competition)
+
+pred_competitiondf <- as.data.frame(pred_competition)
+```
+
+#### Converts Probabilities to Yes and No
+
+```{r}
+pred_competition<- mutate(pred_competition,"Deal_Yes"=case_when(Yes>0.5 ~ "Yes", Yes<0.5 ~ "No"))
+```
+
+#### Combine predicitons with shark competion ID
+
+```{r}
+#competition <- read_csv("shark_competition.csv")
+kaggle = sharkcompetition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_2 = bind_cols(kaggle, pred_competition) #here, you would put your predictions object
+
+colnames(kaggle_2)[colnames(kaggle_2) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_2 = select(kaggle_2,ID,Deal_Yes)
+
+kaggle_2
+```
+
+#### Finalize
+
+Now we can write this dataframe out to a CSV file. This is file that you submit to Kaggle.  
+```{r}
+write.csv(kaggle_2, "kagglenb_submit.csv", row.names=FALSE)
+```
+
+
+## Log Reg______________________________________________________________________
+
+```{r}
+#Data set is split 70% into a training set and 30% into a test set
+set.seed(123)
+shark_split = initial_split(sharkstudent, prop = 0.70, strata = Deal_Yes)
+train = training(shark_split)
+test = testing(shark_split)
+
+folds = vfold_cv(train,v=5)
+```
+
+```{r Log Reg for state var}
+#Creates Logistic regression model for predictor variable state for response variable violator
+shark_model = 
+  logistic_reg() %>% #note the use of logistic_reg
+  set_engine("glm") #standard logistic regression engine is glm
+
+shark_recipe = recipe(Deal_Yes~Season + BusinessServices + EquityRequested + ImpliedValuationRequested + AmountRequested + Eth1 + ChildrenEducation + Automotive + LifestyleHome, train) %>%
+  step_other(BusinessServices,ChildrenEducation,Automotive,LifestyleHome, threshold = 0.05) %>%
+  step_dummy(all_nominal(), -all_outcomes()) #exclude the response variable from being dummy converted  %<%
+  
+logreg_wf = workflow() %>%
+  add_recipe(shark_recipe) %>% 
+  add_model(shark_model)
+
+shark_fit = fit(logreg_wf, train)
+
+summary(shark_fit$fit$fit$fit)
+```
+
+#### Predictions and Analysis
+
+```{r}
+#Isolate Violator probabilities
+predictions = predict(shark_fit, train, type="prob")[2]
+#head(predictions)
+```
+
+Threshold selection  
+```{r}
+#Prepares object for ROC curve or threshold
+ROCRpred = prediction(predictions, train$Deal_Yes) 
+
+#Plots ROC:
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+
+Area under the curve (AUC). AUC is a measure of the strength of the model. Values closer to 1 are better. Can be used to compare models.  
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+```
+
+```{r}
+#Determine threshold to balance sensitivity and specificity
+#DO NOT modify this code
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+#### Confusion matrix
+```{r}
+#The "No" and "Yes" represent the actual values
+#The "FALSE" and "TRUE" represent our predicted values
+sharktest <- table(train$Deal_Yes,predictions > 0.542)
+sharktest
+```
+
+Accuracy
+```{r}
+(sharktest[1,1]+sharktest[2,2])/nrow(train)
+```
+
+#### Run Predictions for Test Data
+
+```{r}
+#Isolate Violator probabilities
+predictions = predict(shark_fit, test, type="prob")[2]
+#head(predictions)
+```
+
+Threshold selection  
+
+```{r}
+#Prepares object for ROC curve or threshold
+ROCRpred = prediction(predictions, test$Deal_Yes) 
+
+#Plots ROC:
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+
+```{r}
+as.numeric(performance(ROCRpred, "auc")@y.values)
+```
+
+```{r}
+#Determine threshold to balance sensitivity and specificity
+#DO NOT modify this code
+opt.cut = function(perf, pred){
+    cut.ind = mapply(FUN=function(x, y, p){
+        d = (x - 0)^2 + (y-1)^2
+        ind = which(d == min(d))
+        c(sensitivity = y[[ind]], specificity = 1-x[[ind]], 
+            cutoff = p[[ind]])
+    }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+print(opt.cut(ROCRperf, ROCRpred))
+```
+
+#### Confusion matrix
+```{r}
+#The "No" and "Yes" represent the actual values
+#The "FALSE" and "TRUE" represent our predicted values
+sharktest <- table(test$Deal_Yes,predictions > 0.532)
+sharktest
+```
+
+Accuracy
+```{r}
+(sharktest[1,1]+sharktest[2,2])/nrow(test)
+```
+
+### Submission for Kaggle
+
+#### Predictions on competition set
+
+```{r Test set prediction and performance1}
+#Generates Predictions for competition set
+pred_competition = predict(shark_fit, sharkcompetition, type = "class")
+head(pred_competition)
+```
+
+#### Combine predicitons with shark competion ID
+
+```{r}
+competition <- read_csv("shark_competition.csv")
+kaggle = competition %>% rowid_to_column("ID") %>% select(ID) #creating a data frame with just the ID number from competition
+
+kaggle_2 = bind_cols(kaggle, pred_competition) #here, you would put your predictions object
+colnames(kaggle_2)[colnames(kaggle_2) == ".pred_class"] <- "Deal_Yes"
+
+kaggle_2
+```
+
+Now we can write this dataframe out to a CSV file. This is file that you submit to Kaggle.  
+```{r}
+write.csv(kaggle_2, "kaggleLog_submit.csv", row.names=FALSE)
+```
